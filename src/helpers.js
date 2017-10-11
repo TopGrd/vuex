@@ -1,10 +1,16 @@
 export const mapState = normalizeNamespace((namespace, states) => {
+  // 存放表
   const res = {}
+  // mapState({ todo: state => state.todo })
+  // 传入是参数为数组或对象
+  // 将传入的states转换为数组，遍历
+  // 最后将结果映射入 Vue 实例的 computed 中
   normalizeMap(states).forEach(({ key, val }) => {
     res[key] = function mappedState () {
       let state = this.$store.state
       let getters = this.$store.getters
       if (namespace) {
+        // 从 module 对应的 namespace 表里取对应模块
         const module = getModuleByNamespace(this.$store, 'mapState', namespace)
         if (!module) {
           return
@@ -12,6 +18,7 @@ export const mapState = normalizeNamespace((namespace, states) => {
         state = module.context.state
         getters = module.context.getters
       }
+      // 如果 val 为函数，则执行获取结果
       return typeof val === 'function'
         ? val.call(this, state, getters)
         : state[val]
@@ -22,6 +29,7 @@ export const mapState = normalizeNamespace((namespace, states) => {
   return res
 })
 
+// 将结果映射入 Vue 实例的 methods 中
 export const mapMutations = normalizeNamespace((namespace, mutations) => {
   const res = {}
   normalizeMap(mutations).forEach(({ key, val }) => {
