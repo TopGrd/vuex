@@ -10,10 +10,13 @@ export class Store {
     // Auto install if it is not done yet and `window` has `Vue`.
     // To allow users to avoid auto-installation in some cases,
     // this code should be placed here. See #731
+    // 检测 Vue， 如果 当前环境 Vue 不存在，则安装全局环境的 Vue
     if (!Vue && typeof window !== 'undefined' && window.Vue) {
       install(window.Vue)
     }
 
+
+    // 检测环境 
     if (process.env.NODE_ENV !== 'production') {
       assert(Vue, `must call Vue.use(Vuex) before creating a store instance.`)
       assert(typeof Promise !== 'undefined', `vuex requires a Promise polyfill in this browser.`)
@@ -43,6 +46,7 @@ export class Store {
     this._watcherVM = new Vue()
 
     // bind commit and dispatch to self
+    // 绑定 commit dispatch
     const store = this
     const { dispatch, commit } = this
     this.dispatch = function boundDispatch (type, payload) {
@@ -58,6 +62,7 @@ export class Store {
     // init root module.
     // this also recursively registers all sub-modules
     // and collects all module getters inside this._wrappedGetters
+    // installModule (store, rootState, path, module, hot)
     installModule(this, state, [], this._modules.root)
 
     // initialize the store vm, which is responsible for the reactivity
@@ -84,6 +89,7 @@ export class Store {
 
   commit (_type, _payload, _options) {
     // check object-style commit
+    // 检查 入参，({ type: 'xx', data: 'xx' }, options) || ('xx', data, options)
     const {
       type,
       payload,
@@ -91,6 +97,7 @@ export class Store {
     } = unifyObjectStyle(_type, _payload, _options)
 
     const mutation = { type, payload }
+    // 在注册的mutations表中查询对应type的函数
     const entry = this._mutations[type]
     if (!entry) {
       if (process.env.NODE_ENV !== 'production') {
@@ -98,11 +105,13 @@ export class Store {
       }
       return
     }
+    // 执行type所对应mutations
     this._withCommit(() => {
       entry.forEach(function commitIterator (handler) {
         handler(payload)
       })
     })
+    // 订阅状态修改来跟踪
     this._subscribers.forEach(sub => sub(mutation, this.state))
 
     if (
@@ -123,6 +132,7 @@ export class Store {
       payload
     } = unifyObjectStyle(_type, _payload)
 
+    // entry Promise
     const entry = this._actions[type]
     if (!entry) {
       if (process.env.NODE_ENV !== 'production') {
@@ -130,16 +140,19 @@ export class Store {
       }
       return
     }
+    // Promise.all将entry所有函数执行
     return entry.length > 1
       ? Promise.all(entry.map(handler => handler(payload)))
       : entry[0](payload)
   }
 
+  // 订阅
   subscribe (fn) {
     const subs = this._subscribers
     if (subs.indexOf(fn) < 0) {
       subs.push(fn)
     }
+    // 返回订阅 handler
     return () => {
       const i = subs.indexOf(fn)
       if (i > -1) {
@@ -148,19 +161,24 @@ export class Store {
     }
   }
 
+  // 观测
   watch (getter, cb, options) {
     if (process.env.NODE_ENV !== 'production') {
       assert(typeof getter === 'function', `store.watch only accepts a function.`)
     }
+    // 使用 vue 实例的 watch 方法观测
     return this._watcherVM.$watch(() => getter(this.state, this.getters), cb, options)
   }
 
+  // 替换状态树
   replaceState (state) {
     this._withCommit(() => {
       this._vm._data.$$state = state
     })
   }
 
+
+  // 注册模块
   registerModule (path, rawModule) {
     if (typeof path === 'string') path = [path]
 
@@ -175,6 +193,8 @@ export class Store {
     resetStoreVM(this, this.state)
   }
 
+
+  // 注销模块
   unregisterModule (path) {
     if (typeof path === 'string') path = [path]
 
@@ -195,7 +215,9 @@ export class Store {
     resetStore(this, true)
   }
 
+  // 保证同步修改 state， this.commiting 为 true, 否则修改有问题
   _withCommit (fn) {
+    // this._committing 默认为 false
     const committing = this._committing
     this._committing = true
     fn()
@@ -203,6 +225,7 @@ export class Store {
   }
 }
 
+// 重置store 清空store的actions, mutations, getters
 function resetStore (store, hot) {
   store._actions = Object.create(null)
   store._mutations = Object.create(null)
@@ -222,6 +245,7 @@ function resetStoreVM (store, state, hot) {
   store.getters = {}
   const wrappedGetters = store._wrappedGetters
   const computed = {}
+  // 遍历 wrappedGetters，生成 computed
   forEachValue(wrappedGetters, (fn, key) => {
     // use computed to leverage its lazy-caching mechanism
     computed[key] = () => fn(store)
@@ -236,6 +260,8 @@ function resetStoreVM (store, state, hot) {
   // some funky global mixins
   const silent = Vue.config.silent
   Vue.config.silent = true
+  // 新建 Vue 实例，获取 Vue 的 watch 机制
+  // 将 state 托管于 Vue 实例的 data中
   store._vm = new Vue({
     data: {
       $$state: state
@@ -257,30 +283,38 @@ function resetStoreVM (store, state, hot) {
         oldVm._data.$$state = null
       })
     }
+    // 在下个事件循环中摧毁旧的 vm
     Vue.nextTick(() => oldVm.$destroy())
   }
 }
 
+// 初始化模块 递归遍历所有子模块
+// 注册收集 mutations，actions，getter维持在内部的 map 里
 function installModule (store, rootState, path, module, hot) {
+  // 长度为0，则为根节点  
   const isRoot = !path.length
   const namespace = store._modules.getNamespace(path)
 
   // register in namespace map
+  // 在命名空间表中注册
   if (module.namespaced) {
     store._modulesNamespaceMap[namespace] = module
   }
 
   // set state
   if (!isRoot && !hot) {
+    // 寻找需要注册 path 的父级 state
     const parentState = getNestedState(rootState, path.slice(0, -1))
     const moduleName = path[path.length - 1]
     store._withCommit(() => {
+      // parentState[moduleName] = state
       Vue.set(parentState, moduleName, module.state)
     })
   }
 
   const local = module.context = makeLocalContext(store, namespace, path)
 
+  // 遍历 module.mutations
   module.forEachMutation((mutation, key) => {
     const namespacedType = namespace + key
     registerMutation(store, namespacedType, mutation, local)
@@ -305,6 +339,8 @@ function installModule (store, rootState, path, module, hot) {
  * make localized dispatch, commit, getters and state
  * if there is no namespace, just use root ones
  */
+// dispatch, commit, getters and state 局部化
+// 如果子模块 dispatch一个 action 或其他，则通过命名空间构造对应的 type，从而在 map 里找到对应的函数
 function makeLocalContext (store, namespace, path) {
   const noNamespace = namespace === ''
 
@@ -381,16 +417,23 @@ function makeLocalGetters (store, namespace) {
   return gettersProxy
 }
 
+// 注册 mutation
 function registerMutation (store, type, handler, local) {
+  // 如果不存在，新建数组
   const entry = store._mutations[type] || (store._mutations[type] = [])
+  // 将 mutation 执行的回调函数 push 入表中
   entry.push(function wrappedMutationHandler (payload) {
+    // [types.XXXX](state, payload) {}
     handler.call(store, local.state, payload)
   })
 }
 
+// 注册 action
 function registerAction (store, type, handler, local) {
   const entry = store._actions[type] || (store._actions[type] = [])
+  // 注册 action 函数并且通过提交 mutation 修改 state
   entry.push(function wrappedActionHandler (payload, cb) {
+    // [types.XXXX]({ commit, ...}, payload) {}
     let res = handler.call(store, {
       dispatch: local.dispatch,
       commit: local.commit,
@@ -399,6 +442,7 @@ function registerAction (store, type, handler, local) {
       rootGetters: store.getters,
       rootState: store.state
     }, payload, cb)
+    // 将返回值包装成 Promise
     if (!isPromise(res)) {
       res = Promise.resolve(res)
     }
@@ -430,9 +474,11 @@ function registerGetter (store, type, rawGetter, local) {
   }
 }
 
+// 严格模式
 function enableStrictMode (store) {
   store._vm.$watch(function () { return this._data.$$state }, () => {
     if (process.env.NODE_ENV !== 'production') {
+      // 观测 state 的变化， 如果 committing 为 false，则不是通过 mutation 修改
       assert(store._committing, `Do not mutate vuex store state outside mutation handlers.`)
     }
   }, { deep: true, sync: true })
@@ -459,6 +505,7 @@ function unifyObjectStyle (type, payload, options) {
 }
 
 export function install (_Vue) {
+  // 如果已存在 vue，则已安装过
   if (Vue && _Vue === Vue) {
     if (process.env.NODE_ENV !== 'production') {
       console.error(
